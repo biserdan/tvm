@@ -46,6 +46,140 @@
 namespace tvm {
 namespace relay {
 
+//relay.nn.reduced_input
+
+TVM_REGISTER_NODE_TYPE(ReducedInputAttrs);
+
+
+  struct tensor_data_dim_pos
+  {
+    int pos_N, pos_C, pos_H, pos_W;
+    tensor_data_dim_pos(int N, int C, int H, int W): pos_N(N), pos_C(C), pos_H(H), pos_W(W){};
+  };
+
+
+  struct tensor_weight_dim_pos
+  {
+    int pos_O, pos_I, pos_H, pos_W;
+    tensor_weight_dim_pos(int O, int I, int H, int W): pos_O(O), pos_I(I), pos_H(H), pos_W(W){};
+  };
+
+
+
+bool ReducedInputRel(const Array<Type>& types, int num_inputs, const Attrs& attrs,
+                     const TypeReporter& reporter) {
+  // [data, output_tensor]
+  ICHECK_EQ(types.size(), 2);
+  const ReducedInputAttrs* param = attrs.as<ReducedInputAttrs>();
+  if (param == nullptr) {
+    return false;
+  }
+  const auto* data = types[0].as<TensorTypeNode>();
+  if (data == nullptr) {
+    return false;
+  }
+  //data and weight=output shape
+  auto dshape = data->shape;
+  int64_t dnum_axis = dshape.size();
+
+  auto wshape = param->weight_shape;
+  int64_t wnum_axis = wshape.size();
+
+
+  ICHECK_EQ(dnum_axis, wnum_axis);
+
+
+  //switch from kernel layout to data layout
+  ICHECK_EQ(param->data_layout.length(), 4) <<  "data layout needs to be 4-dimensional";
+  ICHECK_EQ(param->kernel_layout.length(), 4) <<  "data layout needs to be 4-dimensional";
+
+
+  //searches data_layout for position of each Dimension position
+  tensor_data_dim_pos data_dim_pos(
+    static_cast<std::string>(param->data_layout).find("N"),
+    static_cast<std::string>(param->data_layout).find("C"),
+    static_cast<std::string>(param->data_layout).find("H"),
+    static_cast<std::string>(param->data_layout).find("W")
+  );
+
+  tensor_weight_dim_pos weight_dim_pos(
+    static_cast<std::string>(param->kernel_layout).find("O"),
+    static_cast<std::string>(param->kernel_layout).find("I"),
+    static_cast<std::string>(param->kernel_layout).find("H"),
+    static_cast<std::string>(param->kernel_layout).find("W")
+  );
+
+
+  // calculate output shape (shifted to OIHW for tensor-tensor dot when depthwise)
+  std::vector<IndexExpr> oshape(wnum_axis);
+  oshape[data_dim_pos.pos_N] = param->weight_shape[weight_dim_pos.pos_O];
+  oshape[data_dim_pos.pos_C] = param->weight_shape[weight_dim_pos.pos_I];
+  oshape[data_dim_pos.pos_H] = param->weight_shape[weight_dim_pos.pos_H];
+  oshape[data_dim_pos.pos_W] = param->weight_shape[weight_dim_pos.pos_W];
+
+  // assume data type is 32 bit for now ;)
+  reporter->Assign(types[1], TensorType(oshape, data->dtype));
+  return true;
+}
+
+InferCorrectLayoutOutput ReducedInputInferCorrectLayout(const Attrs& attrs,
+                                                 const Array<Layout>& new_in_layouts,
+                                                 const Array<Layout>& old_in_layouts,
+                                                 const Array<tvm::relay::Type>& old_in_types) {
+  const ReducedInputAttrs* params = attrs.as<ReducedInputAttrs>();
+  return InferCorrectLayoutOutput({params->data_layout}, {params->data_layout}, attrs);
+}
+
+
+Array<te::Tensor> ReducedInputCompute(const Attrs& attrs,
+  const Array<te::Tensor>& input, const Type& out_type) {
+  const ReducedInputAttrs* param = attrs.as<ReducedInputAttrs>();
+  return Array<te::Tensor>{topi::reduced_input(input[0], param->strides, param->weight_shape, param->kernel_layout, param->data_layout)};
+}
+
+
+Expr MakeReducedInput(Expr data, Shape strides, Shape weight_shape, String kernel_lay, String data_lay) {
+  auto attrs = make_object<ReducedInputAttrs>();
+  attrs->strides =  strides;
+  attrs->weight_shape = weight_shape;
+  attrs->kernel_layout = kernel_lay;
+  attrs->data_layout = data_lay;
+  attrs->out_dtype = DataType::Int(32); // fixed form now
+  static const Op& op = Op::Get("nn.reduced_input");
+  return Call(op, {data}, Attrs(attrs), {});
+}
+
+
+TVM_REGISTER_GLOBAL("relay.op.nn._make.reduced_input").set_body_typed(MakeReducedInput);
+
+RELAY_REGISTER_OP("nn.reduced_input")
+    .describe(R"code(reduced 2D input of an array for each individual channel (one batch-4D tensor required thus casted required prior to calc).
+output->dtype = input->dtype
+Examples:: (attr.stride=[2,2], attr.kernel_size= [3,3])
+
+  x = [[[  1,   6,    11,  16 , 21],
+       [  2,   7,    12,  17 , 22],
+       [  3,   8,    13,  18 , 23],
+       [  4,   9,    14,  19 , 24],
+       [  5,   10,   15,  20 , 25]]]
+
+
+  reduced_input(x) = [[[(1+11+3+13), (6+16+8+18), (11+21+13+23)],
+                      [(2+12+4+14), (7+17+9+19),  (12+22+14+24)],
+                      [(3+13+5+15), (8+18+10+20), (13+23+15+25)]]]
+
+
+)code" TVM_ADD_FILELINE)
+    .set_num_inputs(1)
+    .add_argument("data", "Tensor", "The input tensor.")
+    .set_support_level(1)
+    .set_attrs_type<ReducedInputAttrs>()
+    .add_type_rel("ReducedInput", ReducedInputRel)
+    .set_attr<FInferCorrectLayout>("FInferCorrectLayout", ReducedInputInferCorrectLayout)
+    .set_attr<TOpIsStateful>("TOpIsStateful", false)
+    .set_attr<FTVMCompute>("FTVMCompute", ReducedInputCompute)
+    .set_attr<TOpPattern>("TOpPattern", kOpaque);
+
 // relay.nn.bias_add
 TVM_REGISTER_NODE_TYPE(BiasAddAttrs);
 

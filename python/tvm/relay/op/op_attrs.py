@@ -33,6 +33,9 @@ class Conv2DAttrs(Attrs):
 class Conv2DWinogradAttrs(Attrs):
     """Attributes for nn.contrib_conv2d_winograd_without_weight_transform"""
 
+@tvm._ffi.register_object("relay.attrs.ReducedInputAttrs")
+class ReducedInputAttrs(Attrs):
+    """Attributes for nn.reduced_inputs"""
 
 @tvm._ffi.register_object("relay.attrs.Conv3DAttrs")
 class Conv3DAttrs(Attrs):

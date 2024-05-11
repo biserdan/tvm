@@ -1959,6 +1959,30 @@ def dropout_raw(data, rate=0.5):
     """
     return _make.dropout(data, rate)
 
+def reduced_input(data: Expr, strides: list, weight_shape: list,  kernel_layout:str, data_layout:str):
+    """Applies the reduced input checksum opertaion on the input array (Hari et al).
+
+    Reduces data dimension to the according filter dimension for non unit strided conv2D
+
+    Parameters
+    ----------
+    data : tvm.relay.Expr
+        The input data to the operator.
+    strides: list,
+        strides of original conv2d -> extended to 4D due to strided slicing 
+    weight_shape: list,
+        weight shape required to infer output dimension (use filter-wise checksum sum size ;))
+    kernel_layout:str,
+        Kernel layout required to interpret weight dimensions
+    data_layout:str
+        Data layout of original conv2d required to interpret data shape
+    Returns
+    -------
+    result : tvm.relay.Expr
+        The result of reduced_input with data_layout
+    """
+    return _make.reduced_input(data, strides, weight_shape, kernel_layout, data_layout)
+
 
 def batch_norm(
     data, gamma, beta, moving_mean, moving_var, axis=1, epsilon=1e-5, center=True, scale=True

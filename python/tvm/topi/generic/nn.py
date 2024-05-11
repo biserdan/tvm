@@ -718,6 +718,22 @@ def schedule_pool(outs, layout):
     """
     return _default_schedule(outs, False)
 
+def schedule_reduced_input(outs):
+    """Schedule for reduced_input
+
+    Parameters
+    ----------
+    outs: Array of Tensor
+          The computation graph description of pool
+          in the format of an array of tensors.
+
+    Returns
+    -------
+    sch: Schedule
+        The computation schedule for the op.
+    """
+    return _default_schedule(outs, False)
+
 
 def schedule_pool_grad(outs):
     """Schedule for pool_grad

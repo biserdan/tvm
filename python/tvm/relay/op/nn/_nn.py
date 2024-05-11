@@ -206,6 +206,9 @@ reg.register_strategy("nn.conv1d", strategy.conv1d_strategy)
 # conv2d
 reg.register_strategy("nn.conv2d", strategy.conv2d_strategy)
 
+#reduced_input
+reg.register_strategy("nn.reduced_input", strategy.reduced_input_strategy)
+
 
 @reg.register_alter_op_layout("nn.conv2d")
 def alter_op_layout_conv2d(attrs, inputs, tinfos, out_type):
@@ -1243,6 +1246,31 @@ def conv_shape_func(attrs, inputs, _):
 reg.register_shape_func("nn.conv1d", False, conv_shape_func)
 reg.register_shape_func("nn.conv2d", False, conv_shape_func)
 reg.register_shape_func("nn.conv3d", False, conv_shape_func)
+
+def reduced_input_shape_func(attrs, inputs, _):
+    if attrs["data_layout"] == "NCHW":
+        dict = {
+            'HWOI': [attrs.weight_shape[2], attrs.weight_shape[3], attrs.weight_shape[0], attrs.weight_shape[1]],
+            'IOHW': [attrs.weight_shape[1], attrs.weight_shape[0], attrs.weight_shape[2], attrs.weight_shape[3]],
+            'OIHW': [attrs.weight_shape[0], attrs.weight_shape[1], attrs.weight_shape[2], attrs.weight_shape[3]],
+            'OHWI': [attrs.weight_shape[0], attrs.weight_shape[3], attrs.weight_shape[1], attrs.weight_shape[2]]
+            }
+        out_shape = dict[attrs["kernel_layout"]]
+        return output_tensor((out_shape) , "int32")
+
+
+    elif attrs["data_layout"] == "NHWC":
+        dict = {
+            'HWOI': [attrs.weight_shape[2], attrs.weight_shape[0], attrs.weight_shape[1], attrs.weight_shape[3]],
+            'IOHW': [attrs.weight_shape[1], attrs.weight_shape[2], attrs.weight_shape[3], attrs.weight_shape[0]],
+            'OIHW': [attrs.weight_shape[0], attrs.weight_shape[2], attrs.weight_shape[3], attrs.weight_shape[1]],
+            'OHWI': [attrs.weight_shape[0], attrs.weight_shape[1], attrs.weight_shape[2], attrs.weight_shape[3]]
+            }
+        out_shape = dict[attrs["kernel_layout"]]
+        return output_tensor((out_shape) , "int32")
+
+
+reg.register_shape_func("nn.reduced_input", False, reduced_input_shape_func)
 
 
 @script
